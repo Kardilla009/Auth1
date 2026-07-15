@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Supabase Auth Test</title>
+<style>
+  body {
+    font-family: -apple-system, sans-serif;
+    background: #111;
+    color: #eee;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 20px;
+    text-align: center;
+  }
+  button {
+    background: #4285F4;
+    color: white;
+    border: none;
+    padding: 14px 28px;
+    font-size: 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    margin-top: 20px;
+  }
+  button:disabled { background: #555; }
+  #status, #userinfo, #debug {
+    margin-top: 20px;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-width: 90vw;
+  }
+  #userinfo, #debug, #rpcResult {
+    background: #222;
+    padding: 12px;
+    border-radius: 8px;
+    text-align: left;
+    margin-top: 20px;
+    font-size: 14px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-width: 90vw;
+  }
+  #debug { color: #f88; font-family: monospace; font-size: 12px; }
+  #rpcResult { color: #8f8; font-family: monospace; font-size: 12px; }
+  #rpcTests button { display: block; width: 100%; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+  <h2>Supabase Auth Test</h2>
+  <p>Tap the button, sign in with Google, and check what comes back.</p>
+
+  <button id="signInBtn" disabled>Loading...</button>
+  <button id="signOutBtn" style="background:#555; display:none;">Sign Out</button>
+
+  <div id="status">Initializing...</div>
+  <div id="userinfo"></div>
+
+  <div id="rpcTests" style="display:none; margin-top:20px;">
+    <h3>RPC Tests</h3>
+    <button id="checkinBtn" style="background:#34a853;">Test daily_checkin()</button><br>
+    <button id="wordBtn" style="background:#fbbc05; color:#111;">Test claim_word(1, "APPLE")</button><br>
+    <button id="taskBtn" style="background:#ea4335;">Test complete_task(0)</button>
+  </div>
+
+  <div id="rpcResult"></div>
+  <div id="debug"></div>
+
+<script>
+  // Surface every error directly on the page since mobile console access is limited.
+  const debugEl = document.getElementById('debug');
+  function logDebug(msg) {
+    debugEl.textContent += msg + "\n";
+  }
+  window.onerror = function(msg, src, line, col, err) {
+    logDebug("GLOBAL ERROR: " + msg + " (line " + line + ")");
+    return false;
+  };
+</script>
+
+<script>
+  function initAuth() {
+    try {
+      if (!window.supabase) {
+        logDebug("window.supabase is undefined even though script loaded — unexpected.");
+        document.getElementById('status').textContent = "Init failed. See debug log below.";
+        return;
+      }
+
+      const SUPABASE_URL = "https://bhngnxsefwhauisqzchd.supabase.co";
+      const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJobmdueHNlZndoYXVpc3F6Y2hkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODQxMTQ5NTYsImV4cCI6MjA5OTY5MDk1Nn0.HC_ack-IkEStK6lJXkvSmo30o8o5qyF1CDEWzc8Q2i4";
+
+      const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+      logDebug("Supabase client created OK.");
+
+      const statusEl = document.getElementById('status');
+      const userInfoEl = document.getElementById('userinfo');
+      const signInBtn = document.getElementById('signInBtn');
+      const signOutBtn = document.getElementById('signOutBtn');
+      const rpcTests = document.getElementById('rpcTests');
+      const rpcResultEl = document.getElementById('rpcResult');
+
+      signInBtn.disabled = false;
+      signInBtn.textContent = "Sign in with Google";
+
+      async function refreshUI() {
+        try {
+          const { data: { session } } = await supabaseClient.auth.getSession();
+          if (session) {
+            statusEl.textContent = "Signed in as: " + session.user.email;
+            userInfoEl.textContent = JSON.stringify({
+              id: session.user.id,
+              email: session.user.email,
+              full_name: session.user.user_metadata?.full_name || null
+            }, null, 2);
+            signInBtn.style.display = "none";
+            signOutBtn.style.display = "inline-block";
+            rpcTests.style.display = "block";
+          } else {
+            statusEl.textContent = "Not signed in.";
+            userInfoEl.textContent = "";
+            signInBtn.style.display = "inline-block";
+            signOutBtn.style.display = "none";
+            rpcTests.style.display = "none";
+          }
+        } catch (e) {
+          logDebug("refreshUI error: " + e.message);
+        }
+      }
+
+      async function callRpc(name, params) {
+        rpcResultEl.textContent = "Calling " + name + "...";
+        try {
+          const { data, error } = await supabaseClient.rpc(name, params || {});
+          if (error) {
+            rpcResultEl.textContent = name + " ERROR:\n" + JSON.stringify(error, null, 2);
+          } else {
+            rpcResultEl.textContent = name + " RESULT:\n" + JSON.stringify(data, null, 2);
+          }
+        } catch (e) {
+          rpcResultEl.textContent = name + " EXCEPTION:\n" + e.message;
+        }
+      }
+
+      document.getElementById('checkinBtn').addEventListener('click', () => {
+        callRpc('daily_checkin');
+      });
+      document.getElementById('wordBtn').addEventListener('click', () => {
+        callRpc('claim_word', { p_word_idx: 1, p_guess: 'APPLE' });
+      });
+      document.getElementById('taskBtn').addEventListener('click', () => {
+        callRpc('complete_task', { p_idx: 0 });
+      });
+
+      signInBtn.addEventListener('click', async () => {
+        logDebug("Button tapped. Attempting signInWithOAuth...");
+        statusEl.textContent = "Redirecting to Google...";
+        try {
+          const { data, error } = await supabaseClient.auth.signInWithOAuth({
+            provider: 'google',
+            options: { redirectTo: window.location.href }
+          });
+          if (error) {
+            logDebug("signInWithOAuth error: " + error.message);
+            statusEl.textContent = "Error: " + error.message;
+          } else {
+            logDebug("signInWithOAuth returned, data: " + JSON.stringify(data));
+          }
+        } catch (e) {
+          logDebug("Exception during signInWithOAuth: " + e.message);
+          statusEl.textContent = "Exception: " + e.message;
+        }
+      });
+
+      signOutBtn.addEventListener('click', async () => {
+        await supabaseClient.auth.signOut();
+        refreshUI();
+      });
+
+      refreshUI();
+
+    } catch (e) {
+      logDebug("initAuth() top-level error: " + e.message);
+      document.getElementById('status').textContent = "Init crashed. See debug log.";
+    }
+  }
+</script>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"
+        onerror="logDebug('FAILED to load supabase-js from jsdelivr CDN.')"
+        onload="logDebug('supabase-js script tag loaded OK.'); initAuth();"></script>
+
+</body>
+</html>
